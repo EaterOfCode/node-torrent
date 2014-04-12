@@ -29,10 +29,11 @@ var Torrent = function(filename, targetFile) {
             decoder.decode(data);
             that.data = tools.bufferToString(decoder.result()[0], 'utf8', ['pieces']);
             console.log(require('util').inspect(that.data, {
-                colors: true,
-                depth: null
+                colors: true
             }));
             that.calculateHash();
+            /*console.log((that.data.info.pieces.length / 20) * that.data.info['piece length']);
+            process.exit();*/
             that.bitfield = new BitField(that.data.info.pieces.length / 20);
             that._algo = new Algorithm(that);
             that._algo.on('done', function() {
@@ -61,6 +62,7 @@ Torrent.prototype.addPeer = function(peer) {
         that.peers.push(peer);
         that.emit('peer', peer);
         peer.on('piece', function(block) {
+            //console.log('Piece', block.index, block.offset);
             //console.log(block);
             that.writeBlock(block);
         });
@@ -82,6 +84,7 @@ Torrent.prototype._writeBlock = function() {
         this._isWriting = true;
         var that = this;
         var pos = (block.index * this.data.info['piece length']) + block.offset;
+        console.log('Write', block.index, block.offset, pos, block.block.length, pos + block.block.length);
         fs.write(this._fd, block.block, 0, block.block.length, pos, function(err) {
             if (err) {
                 that.emit('error', err);

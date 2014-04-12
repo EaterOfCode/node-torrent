@@ -53,13 +53,13 @@ Peer.prototype._onData = function(data) {
         }
         var handshake = buffer.slice(0, 68);
         if (handshake[0] != 19) {
-            this.emit('error', new Error("Receiving handshake is not okay, 0:" + handshake[0]));
+            this.emit('error', new Error("Receiving handshake is not okay, 0: " + handshake[0]));
             this._sock.destroy();
             return;
         }
         var protocolid = handshake.slice(1, 20);
         if (protocolid.toString() != "BitTorrent protocol") {
-            this.emit('error', new Error("Receiving handshake is not okay, 1"));
+            this.emit('error', new Error("Receiving handshake is not okay, 1: " + protocolid.toString()));
             this._sock.destroy();
             return;
         }
@@ -112,8 +112,10 @@ Peer.prototype._onData = function(data) {
                         this.emit('have', index);
                         break;
                     case Peer.BITFIELD:
-                        var bitfield = buffer.slice(5, length + 3);
-                        this.bitfield = new BitField(bitfield);
+                        var bitfield = buffer.slice(5, length + 4);
+                        this.bitfield = new BitField(bitfield, {
+                            grow: Infinity
+                        });
                         this.emit('bitfield', this.bitfield);
                         break;
                     case Peer.REQUEST:
@@ -192,7 +194,7 @@ Peer.prototype.request = function(index, offset, length) {
     var tmpBuf = new Buffer(17);
     tmpBuf.writeInt32BE(13, 0);
     tmpBuf[4] = Peer.REQUEST;
-    /*console.log({
+    /*.log({
         index: index,
         offset: offset,
         length: length

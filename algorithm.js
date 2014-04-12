@@ -18,14 +18,15 @@ var Algorithm = function(torrent) {
                     bitFieldMap[i]++;
                 }
             }
-            //console.log(bitFieldMap, bitfield);
             peer.intrested();
             that.bump();
         });
         peer.on('unchoked', function() {
             that.bump();
-        })
+        });
         peer.on('have', function(index) {
+            //if (index > 783) {
+            //}
             bitFieldMap[index]++;
             //console.log(bitFieldMap, index);
             that.bump();
@@ -38,7 +39,16 @@ var Algorithm = function(torrent) {
                 index: piece.index,
                 offset: piece.offset
             });
+            if (piece.index == 785) {
+                console.log('unfinished before connect', that.unfinishedPieces[piece.index]);
+            }
             that.unfinishedPieces[piece.index] = that.connectBlocks(that.unfinishedPieces[piece.index]);
+            if (piece.index == 785) {
+                console.log('unfinished after connect', that.unfinishedPieces[piece.index]);
+                console.log('running reqs', that.runningRequests.filter(function(a) {
+                    a.index == 785
+                }));
+            }
             if (that.unfinishedPieces[piece.index].length == 1 && that.unfinishedPieces[piece.index][0].offset == 0 && that.unfinishedPieces[piece.index][0].length == that.getPieceLength(piece.index)) {
                 that.torrent.bitfield.set(piece.index, true);
                 that.torrent.have(piece.index);
@@ -63,8 +73,9 @@ var Algorithm = function(torrent) {
                     good = false;
                 }
             }
-            //console.log(((len / missing) * 100) + '%', that.unfinishedPieces, that.runningRequests);
+            //console.log((100 - ((missing / len) * 100)) + '%', that.torrent._queuedWrites.length) //, that.unfinishedPieces, that.runningRequests);
             if (good) {
+                //console.log(that.unrequestedBlocks());
                 this.emit('done');
             } else {
                 that.bump();
@@ -100,6 +111,7 @@ Algorithm.prototype.connectBlocks = function(blocks) {
         }
         return a;
     });
+    //console.log(blocks, fin);
     if (!Array.isArray(fin)) fin = [fin];
     return fin;
 }
@@ -134,7 +146,6 @@ Algorithm.prototype.getGaps = function(blockArray, index) {
         });
         lastOffset = a.offset + a.length;
     }
-    console.log(gaps, blockArray);
     //if (this.di) process.exit();
     return gaps;
 }
@@ -142,7 +153,8 @@ Algorithm.prototype.getGaps = function(blockArray, index) {
 Algorithm.prototype.getOptimisticPiece = function(i) {
     var piece = [];
     if (this.unfinishedPieces[i]) {
-        piece = this.unfinishedPieces[i];
+        // bugger line
+        piece = [].concat(piece, this.unfinishedPieces[i]);
     }
     piece.push.apply(piece, this.runningRequests.filter(function(a) {
         return a.index == i;
@@ -155,6 +167,7 @@ Algorithm.prototype.unrequestedBlocks = function() {
     for (var i = 0; i < this._len; i++) {
         if (!this.torrent.bitfield.get(i)) {
             var fin = this.getOptimisticPiece(i);
+            // console.log(fin);
             if ((fin.length > 1 || fin.length == 0) || (fin[0].offset > 0 || fin[0].length < this.getPieceLength(i))) {
                 missing.push(i);
             }
@@ -170,11 +183,12 @@ Algorithm.prototype.selectPeerByPiece = function(index) {
     return availPeers[Math.floor(availPeers.length * Math.random())];
 }
 
-Algorithm.prototype.selectBlock = function(blocks) {
+Algorithm.prototype.selectBlocks = function(blocks) {
     var bitFieldMap = this.bitFieldMap;
     var rarestPieceIndex = blocks.sort(function(a, b) {
         return bitFieldMap[a] > bitFieldMap[b] ? 1 : bitFieldMap[a] < bitFieldMap[b] ? -1 : 0;
     }).filter(function(a) {
+        //console.log(a, bitFieldMap[a]);
         return bitFieldMap[a] > 0;
     }).shift();
     if (rarestPieceIndex === undefined) {
@@ -182,21 +196,24 @@ Algorithm.prototype.selectBlock = function(blocks) {
     }
     var optimisticPiece = this.getOptimisticPiece(rarestPieceIndex);
     var gaps = this.getGaps(optimisticPiece, rarestPieceIndex);
-    var request = gaps.shift();
-    return request;
+    return gaps;
 }
 
 Algorithm.prototype.bump = function() {
     var todo;
-    while (this.runningRequests.length < Algorithm.parallelRequests && (todo = this.unrequestedBlocks())) {
-        var block = this.selectBlock(todo);
-        if (!block) break;
-        var peer = this.selectPeerByPiece(block.index);
-        if (peer) {
-            peer.request(block.index, block.offset, block.length);
-            block.peer = peer;
-            this.runningRequests.push(block);
-        } else break;
+    runForrestRun: while (this.runningRequests.length < Algorithm.parallelRequests && (todo = this.unrequestedBlocks())) {
+        var blocks = this.selectBlocks(todo);
+        //console.log(block);
+        if (!blocks.length > 0) break;
+        for (var i = 0; i < blocks.length && this.runningRequests.length < Algorithm.parallelRequests; i++) {
+            var peer = this.selectPeerByPiece(blocks[i].index);
+            if (peer) {
+                //console.log('Reque', blocks[i].index, blocks[i].offset);
+                peer.request(blocks[i].index, blocks[i].offset, blocks[i].length);
+                blocks.peer = peer;
+                this.runningRequests.push(blocks[i]);
+            } else break runForrestRun;
+        }
     }
 };
 

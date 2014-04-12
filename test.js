@@ -9,10 +9,10 @@ var fs = require('fs');
 
 var torrent = new Torrent('./test.torrent', './test.txt');
 torrent.on("ready", function() {
-    console.log(require('util').inspect(torrent, {
+    /*console.log(require('util').inspect(torrent, {
         colors: true,
         depth: null
-    }))
+    }))*/
     net.createServer(function(sock) {
         console.log("Client connected");
         var peer = new Peer({
