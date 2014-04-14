@@ -13,7 +13,9 @@ var Peer = function(options) {
     this.sentHandshake = false;
     this.buffer = new Buffer(0);
     this.myBitfield = options.bitfield;
-    this.bitfield = new BitField();
+    this.bitfield = new BitField({
+        grow: Infinity
+    });
     var that = this;
 
     var sock = this._sock = options.socket || (options.tcp ? net : utp).connect(options.port, options.host, function() {
@@ -84,7 +86,6 @@ Peer.prototype._onData = function(data) {
         this.peerId = handshake.slice(48);
         this.emit('ready');
     } else {
-
         while (buffer.length > 3) {
             var length = buffer.readInt32BE(0);
             if ((length + 4) <= buffer.length) {
@@ -194,11 +195,6 @@ Peer.prototype.request = function(index, offset, length) {
     var tmpBuf = new Buffer(17);
     tmpBuf.writeInt32BE(13, 0);
     tmpBuf[4] = Peer.REQUEST;
-    /*.log({
-        index: index,
-        offset: offset,
-        length: length
-    })*/
     tmpBuf.writeInt32BE(index, 5);
     tmpBuf.writeInt32BE(offset, 9);
     tmpBuf.writeInt32BE(length, 13);

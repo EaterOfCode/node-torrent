@@ -10,6 +10,7 @@ var Algorithm = function(torrent) {
     this._pieceLength = torrent.data.info['piece length'];
     this.runningRequests = [];
     this.unfinishedPieces = {};
+    this.requestQueue = this.createQueue();
     var that = this;
     torrent.on('peer', function(peer) {
         peer.on('bitfield', function(bitfield) {
@@ -19,40 +20,46 @@ var Algorithm = function(torrent) {
                 }
             }
             peer.intrested();
+            that.requestQueue = that.createQueue();
             that.bump();
         });
         peer.on('unchoked', function() {
             that.bump();
         });
         peer.on('have', function(index) {
-            //if (index > 783) {
-            //}
             bitFieldMap[index]++;
-            //console.log(bitFieldMap, index);
             that.bump();
         });
         peer.on('piece', function(piece) {
-            // algorithm only needs to handle requests not file writing
+
             if (!that.unfinishedPieces[piece.index]) that.unfinishedPieces[piece.index] = [];
             that.unfinishedPieces[piece.index].push({
                 length: piece.length,
                 index: piece.index,
                 offset: piece.offset
             });
-            if (piece.index == 785) {
-                console.log('unfinished before connect', that.unfinishedPieces[piece.index]);
-            }
             that.unfinishedPieces[piece.index] = that.connectBlocks(that.unfinishedPieces[piece.index]);
-            if (piece.index == 785) {
-                console.log('unfinished after connect', that.unfinishedPieces[piece.index]);
-                console.log('running reqs', that.runningRequests.filter(function(a) {
-                    a.index == 785
-                }));
-            }
             if (that.unfinishedPieces[piece.index].length == 1 && that.unfinishedPieces[piece.index][0].offset == 0 && that.unfinishedPieces[piece.index][0].length == that.getPieceLength(piece.index)) {
-                that.torrent.bitfield.set(piece.index, true);
-                that.torrent.have(piece.index);
-                delete(that.unfinishedPieces[piece.index]);
+                torrent.checkPiece(piece.index, function(yes) {
+                    if (yes) {
+                        that.torrent.bitfield.set(piece.index, true);
+                        that.torrent.have(piece.index);
+                        var good = true;
+                        var missing = 0;
+                        for (var i = 0; i < len; i++) {
+                            if (!that.torrent.bitfield.get(i)) {
+                                missing++;
+                                good = false;
+                            }
+                        }
+                        if (good) {
+                            that.emit('done');
+                        }
+                    }
+                    delete(that.unfinishedPieces[piece.index]);
+                    that.requestQueue = that.createQueue();
+                    that.bump();
+                });
             }
             that.runningRequests.filter(function(a) {
                 if (a.index == piece.index) {
@@ -65,20 +72,13 @@ var Algorithm = function(torrent) {
             }).forEach(function(a) {
                 that.runningRequests.splice(that.runningRequests.indexOf(a), 1);
             });
-            var good = true;
-            var missing = 0;
+            that.bump();
+        });
+        peer.on('end', function() {
             for (var i = 0; i < len; i++) {
-                if (!that.torrent.bitfield.get(i)) {
-                    missing++;
-                    good = false;
+                if (peer.bitfield.get(i)) {
+                    bitFieldMap[i]--;
                 }
-            }
-            //console.log((100 - ((missing / len) * 100)) + '%', that.torrent._queuedWrites.length) //, that.unfinishedPieces, that.runningRequests);
-            if (good) {
-                //console.log(that.unrequestedBlocks());
-                this.emit('done');
-            } else {
-                that.bump();
             }
         });
     });
@@ -97,7 +97,7 @@ Algorithm.prototype.getPieceLength = function(index) {
 }
 
 Algorithm.prototype.connectBlocks = function(blocks) {
-    //  console.log(blocks);
+
     var fin = blocks.length == 0 ? [] : blocks.sort(function(a, b) {
         return a.offset > b.offset ? 1 : -1;
     }).reduce(function(a, b) {
@@ -111,13 +111,13 @@ Algorithm.prototype.connectBlocks = function(blocks) {
         }
         return a;
     });
-    //console.log(blocks, fin);
+
     if (!Array.isArray(fin)) fin = [fin];
     return fin;
 }
 
 Algorithm.prototype.getGaps = function(blockArray, index) {
-    //  console.log(blockArray);
+
     blockArray = blockArray.sort(function(a, b) {
         return a.offset > b.offset ? 1 : -1;
     });
@@ -146,14 +146,23 @@ Algorithm.prototype.getGaps = function(blockArray, index) {
         });
         lastOffset = a.offset + a.length;
     }
-    //if (this.di) process.exit();
+
     return gaps;
 }
+
+Algorithm.prototype.createQueue = function() {
+    var blocks = this.unrequestedBlocks();
+    if (!blocks) {
+        return [];
+    } else {
+        return this.selectBlocks(blocks);
+    }
+};
 
 Algorithm.prototype.getOptimisticPiece = function(i) {
     var piece = [];
     if (this.unfinishedPieces[i]) {
-        // bugger line
+
         piece = [].concat(piece, this.unfinishedPieces[i]);
     }
     piece.push.apply(piece, this.runningRequests.filter(function(a) {
@@ -167,7 +176,7 @@ Algorithm.prototype.unrequestedBlocks = function() {
     for (var i = 0; i < this._len; i++) {
         if (!this.torrent.bitfield.get(i)) {
             var fin = this.getOptimisticPiece(i);
-            // console.log(fin);
+
             if ((fin.length > 1 || fin.length == 0) || (fin[0].offset > 0 || fin[0].length < this.getPieceLength(i))) {
                 missing.push(i);
             }
@@ -185,34 +194,33 @@ Algorithm.prototype.selectPeerByPiece = function(index) {
 
 Algorithm.prototype.selectBlocks = function(blocks) {
     var bitFieldMap = this.bitFieldMap;
-    var rarestPieceIndex = blocks.sort(function(a, b) {
+    var that = this;
+    var gaps = blocks.sort(function(a, b) {
         return bitFieldMap[a] > bitFieldMap[b] ? 1 : bitFieldMap[a] < bitFieldMap[b] ? -1 : 0;
     }).filter(function(a) {
-        //console.log(a, bitFieldMap[a]);
         return bitFieldMap[a] > 0;
-    }).shift();
-    if (rarestPieceIndex === undefined) {
-        return false;
-    }
-    var optimisticPiece = this.getOptimisticPiece(rarestPieceIndex);
-    var gaps = this.getGaps(optimisticPiece, rarestPieceIndex);
-    return gaps;
+    }).map(function(piece) {
+        var optimisticPiece = that.getOptimisticPiece(piece);
+        var gaps = that.getGaps(optimisticPiece, piece);
+        return gaps;
+    });
+    return gaps.length > 0 ? gaps.reduce(function(a, b) {
+        return b ? a.concat(b) : a;
+    }) : [];
 }
 
 Algorithm.prototype.bump = function() {
-    var todo;
-    runForrestRun: while (this.runningRequests.length < Algorithm.parallelRequests && (todo = this.unrequestedBlocks())) {
-        var blocks = this.selectBlocks(todo);
-        //console.log(block);
-        if (!blocks.length > 0) break;
-        for (var i = 0; i < blocks.length && this.runningRequests.length < Algorithm.parallelRequests; i++) {
-            var peer = this.selectPeerByPiece(blocks[i].index);
-            if (peer) {
-                //console.log('Reque', blocks[i].index, blocks[i].offset);
-                peer.request(blocks[i].index, blocks[i].offset, blocks[i].length);
-                blocks.peer = peer;
-                this.runningRequests.push(blocks[i]);
-            } else break runForrestRun;
+
+    while (this.runningRequests.length < Algorithm.parallelRequests && this.requestQueue.length > 0) {
+        var block = this.requestQueue.shift();
+        var peer = this.selectPeerByPiece(block.index);
+        if (peer) {
+            peer.request(block.index, block.offset, block.length);
+            block.peer = peer;
+            this.runningRequests.push(block);
+        } else {
+            this.requestQueue.push(block);
+            break;
         }
     }
 };

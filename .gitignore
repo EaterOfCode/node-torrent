@@ -216,3 +216,4 @@ pip-log.txt
 
 #NodeJS
 node_modules
+*.mp4

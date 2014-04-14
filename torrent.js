@@ -47,6 +47,34 @@ var Torrent = function(filename, targetFile) {
 
 util.inherits(Torrent, events.EventEmitter);
 
+Torrent.prototype.checkPiece = function(index, cb) {
+    var that = this;
+    process.nextTick(function() {
+        if (that._queuedWrites.filter(function(a) {
+            a.index == index
+        }).length) {
+            that.checkPiece(index, cb);
+        } else {
+            var shasum = crypto.createHash('sha1');
+            var pl = that.data.info['piece length'];
+            var m = index * pl;
+            if (index == ((that.data.info.pieces.length / 20) - 1) && (that.data.info.length % pl) !== 0) pl = (that.data.info.length % pl)
+            var b = new Buffer(pl);
+            fs.read(that._fd, b, 0, pl, m, function(err) {
+                if (err) {
+                    cb(false);
+                    return;
+                }
+                shasum.update(b);
+                shasum = shasum.digest();
+                var shasumB = that.data.info.pieces.slice(index * 20, (index * 20) + 20);
+                console.log(shasumB.toString('hex'), shasum.toString('hex'))
+                cb(shasumB.toString('hex') == shasum.toString('hex'));
+            });
+        }
+    });
+}
+
 Torrent.prototype.openTarget = function(cb) {
     var that = this;
     fs.exists(this.targetFile, function(is) {
@@ -84,7 +112,7 @@ Torrent.prototype._writeBlock = function() {
         this._isWriting = true;
         var that = this;
         var pos = (block.index * this.data.info['piece length']) + block.offset;
-        console.log('Write', block.index, block.offset, pos, block.block.length, pos + block.block.length);
+        //console.log('Write', block.index, block.offset, pos, block.block.length, pos + block.block.length);
         fs.write(this._fd, block.block, 0, block.block.length, pos, function(err) {
             if (err) {
                 that.emit('error', err);
