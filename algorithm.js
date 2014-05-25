@@ -31,7 +31,6 @@ var Algorithm = function(torrent) {
             that.bump();
         });
         peer.on('piece', function(piece) {
-
             if (!that.unfinishedPieces[piece.index]) that.unfinishedPieces[piece.index] = [];
             that.unfinishedPieces[piece.index].push({
                 length: piece.length,
@@ -89,7 +88,7 @@ util.inherits(Algorithm, events.EventEmitter);
 
 Algorithm.prototype.getPieceLength = function(index) {
     if (index == (this._len - 1)) {
-        var p = this.torrent.data.info.length % this._pieceLength
+        var p = this.torrent.data.length % this._pieceLength
         return p == 0 ? this._pieceLength : p;
     } else {
         return this._pieceLength;
@@ -138,6 +137,7 @@ Algorithm.prototype.getGaps = function(blockArray, index) {
     });
     var len = this.getPieceLength(index),
         a;
+    if(index == 576) console.log(len, lastOffset);
     while (lastOffset < len) {
         gaps.push(a = {
             index: index,
@@ -152,6 +152,7 @@ Algorithm.prototype.getGaps = function(blockArray, index) {
 
 Algorithm.prototype.createQueue = function() {
     var blocks = this.unrequestedBlocks();
+    //console.log(blocks);
     if (!blocks) {
         return [];
     } else {
@@ -210,7 +211,6 @@ Algorithm.prototype.selectBlocks = function(blocks) {
 }
 
 Algorithm.prototype.bump = function() {
-
     while (this.runningRequests.length < Algorithm.parallelRequests && this.requestQueue.length > 0) {
         var block = this.requestQueue.shift();
         var peer = this.selectPeerByPiece(block.index);

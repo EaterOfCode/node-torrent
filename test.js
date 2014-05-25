@@ -4,10 +4,10 @@ var Torrent = require('./torrent.js');
 var net = require('utp');
 var fs = require('fs');
 /*
- 
+
  */
 
-var torrent = new Torrent('./test.torrent', './test.txt');
+var torrent = new Torrent('./test/folder.torrent', './test/result');
 torrent.on("ready", function() {
     /*console.log(require('util').inspect(torrent, {
         colors: true,
@@ -26,21 +26,6 @@ torrent.on("ready", function() {
         });
     }).listen(52069, function() {
         console.log("Listening at", '127.0.0.1:52069');
-        /*var deer = new Peer({
-            port: 52069,
-            host: 'localhost',
-            hash: torrent.hash,
-            bitfield: torrent.bitfield
-        });
-        deer.on('ready', function() {
-            console.log(":D");
-        })
-        deer.on("error", function(err) {
-            console.log(":c", err);
-        });
-        deer.on("end", function() {
-            console.log(":|");
-        });*/
     });
 });
 torrent.on('done', function() {
